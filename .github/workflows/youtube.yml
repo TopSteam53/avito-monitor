@@ -1,0 +1,80 @@
+name: YouTube autopilot
+
+on:
+  schedule:
+    - cron: "7 15 * * *"  # каждый день в 18:07 по Москве (15:07 UTC)
+  workflow_dispatch:
+    inputs:
+      topic:
+        description: "Тема ролика (пусто — Claude найдёт сам)"
+        required: false
+      upload:
+        description: "Загрузить на YouTube"
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: youtube-autopilot
+  cancel-in-progress: false
+
+jobs:
+  video:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: youtube/requirements.txt
+
+      - name: Install ffmpeg and fonts
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg fonts-dejavu-core
+          sudo apt-get install -y -qq fonts-montserrat || echo "Montserrat недоступен, будет DejaVu"
+
+      - run: pip install -r youtube/requirements.txt
+
+      - name: Make video
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
+          YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}
+          YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
+          YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          TELEGRAM_URL: ${{ vars.TELEGRAM_URL }}
+          CHANNEL_NAME: ${{ vars.CHANNEL_NAME }}
+          YOUTUBE_PRIVACY: ${{ vars.YOUTUBE_PRIVACY }}
+          VIDEO_TOPIC: ${{ inputs.topic }}
+          NO_UPLOAD: ${{ github.event_name == 'workflow_dispatch' && !inputs.upload && '--no-upload' || '' }}
+        run: python youtube/main.py $NO_UPLOAD
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: video-${{ github.run_number }}
+          path: |
+            youtube/out/*.mp4
+            youtube/out/*.txt
+            youtube/out/*/brief.md
+            youtube/out/*/script.json
+          retention-days: 14
+          if-no-files-found: ignore
+
+      - name: Save topic history
+        run: |
+          git config user.name "youtube-autopilot"
+          git config user.email "actions@users.noreply.github.com"
+          git add youtube/history.json
+          git diff --cached --quiet && exit 0
+          git commit -m "youtube: history update"
+          git pull --rebase origin "$GITHUB_REF_NAME"
+          git push origin "HEAD:$GITHUB_REF_NAME"
