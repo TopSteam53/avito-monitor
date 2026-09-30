@@ -27,6 +27,7 @@ class Voiceover:
     words: list[Word]
     segment_times: list[tuple[float, float]]  # начало и конец каждой фразы
     duration: float
+    parts: list[Path]  # озвучка каждой фразы отдельным файлом
 
 
 def probe_duration(path: Path) -> float:
@@ -72,7 +73,7 @@ def make_voiceover(phrases: list[str], workdir: Path) -> Voiceover:
         times.append((cursor, cursor + length))
         parts.append((mp3, length))
         cursor += length
-    return Voiceover(_concat(parts, workdir / "voice.wav"), words, times, cursor)
+    return Voiceover(_concat(parts, workdir / "voice.wav"), words, times, cursor, [p for p, _ in parts])
 
 
 def _concat(parts: list[tuple[Path, float]], out: Path) -> Path:

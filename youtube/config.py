@@ -1,4 +1,4 @@
-"""Настройки автопилота. Всё, что можно менять без правки кода, берётся из переменных окружения
+"""Настройки. Всё, что можно менять без правки кода, берётся из переменных окружения
 (в GitHub: Settings → Secrets and variables → Actions)."""
 
 import os
@@ -12,29 +12,36 @@ def _env(name: str, default: str = "") -> str:
 
 ROOT = Path(__file__).resolve().parent
 OUT_DIR = ROOT / "out"
+AGENTS_DIR = ROOT / "agents"
+PERSONA_DIR = ROOT / "persona"
+REFERENCE_IMAGE = PERSONA_DIR / "eva.png"  # эталонное лицо Евы, появляется после кастинга
+CANDIDATES_DIR = PERSONA_DIR / "candidates"
 HISTORY_FILE = ROOT / "history.json"
 MUSIC_DIR = ROOT / "assets" / "music"
 
 # --- Канал ---
-CHANNEL_NAME = _env("CHANNEL_NAME", "Нейросети за минуту")
-TELEGRAM_URL = _env("TELEGRAM_URL", "")  # например https://t.me/my_ai_channel
+TELEGRAM_URL = _env("TELEGRAM_URL")  # твой Telegram-канал, куда Ева зовёт зрителей
 
 # --- Claude ---
 CLAUDE_MODEL = _env("CLAUDE_MODEL", "claude-opus-5-5")
 
 # --- Озвучка (edge-tts) ---
-VOICE = _env("TTS_VOICE", "ru-RU-DmitryNeural")  # или ru-RU-SvetlanaNeural
-VOICE_RATE = _env("TTS_RATE", "+12%")
-SEGMENT_PAUSE = 0.18  # пауза между фразами, сек
+VOICE = _env("TTS_VOICE", "ru-RU-SvetlanaNeural")
+VOICE_RATE = _env("TTS_RATE", "+5%")
+SEGMENT_PAUSE = 0.25  # пауза между сценами, сек
+
+# --- Картинки и оживление (fal.ai) ---
+IMAGE_MODEL = _env("IMAGE_MODEL", "fal-ai/nano-banana-2")  # к нему же /edit для кадров с Евой
+IMAGE_RESOLUTION = _env("IMAGE_RESOLUTION", "1K")  # 1K | 2K | 4K — дороже, но чётче
+LIPSYNC_MODEL = _env("LIPSYNC_MODEL", "veed/fabric-1.0")  # дешевле: fal-ai/flashtalk
+LIPSYNC_RESOLUTION = _env("LIPSYNC_RESOLUTION", "480p")  # для fabric: 480p | 720p
+LIPSYNC_MAX_SECONDS = float(_env("LIPSYNC_MAX_SECONDS", "75"))  # потолок «говорящих» секунд на выпуск
 
 # --- Видео ---
 WIDTH, HEIGHT, FPS = 1080, 1920, 30
+MIN_SECONDS = 200  # вертикальные ролики до 3 минут YouTube считает шортсами
 FONT = _env("CAPTION_FONT", "Montserrat")  # если шрифта нет, libass возьмёт системный
-MUSIC_VOLUME_DB = -22
-
-# --- YouTube ---
-PRIVACY_STATUS = _env("YOUTUBE_PRIVACY", "public")  # public | unlisted | private
-CATEGORY_ID = "28"  # Science & Technology
+MUSIC_VOLUME_DB = -24
 
 
 def telegram_handle() -> str:
