@@ -15,6 +15,7 @@ OUT_DIR = ROOT / "out"
 AGENTS_DIR = ROOT / "agents"
 PERSONA_DIR = ROOT / "persona"
 REFERENCE_IMAGE = PERSONA_DIR / "eva.png"  # эталонное лицо Евы, появляется после кастинга
+MODEL_3D = PERSONA_DIR / "eva.vrm"  # 3D-модель из VRoid Studio; если она есть — Ева говорит в 3D
 CANDIDATES_DIR = PERSONA_DIR / "candidates"
 HISTORY_FILE = ROOT / "history.json"
 MUSIC_DIR = ROOT / "assets" / "music"
@@ -37,6 +38,10 @@ LIPSYNC_MODEL = _env("LIPSYNC_MODEL", "veed/fabric-1.0")  # дешевле: fal-
 LIPSYNC_RESOLUTION = _env("LIPSYNC_RESOLUTION", "480p")  # для fabric: 480p | 720p
 LIPSYNC_MAX_SECONDS = float(_env("LIPSYNC_MAX_SECONDS", "75"))  # потолок «говорящих» секунд на выпуск
 
+# --- 3D-Ева (Blender) ---
+RENDER_3D_FPS = 12  # как в аниме: движения «на двойках», и рендер вдвое быстрее
+RENDER_3D_SIZE = (720, 1280)  # потом увеличивается до 1080×1920
+
 # --- Видео ---
 WIDTH, HEIGHT, FPS = 1080, 1920, 30
 MIN_SECONDS = 200  # вертикальные ролики до 3 минут YouTube считает шортсами
@@ -50,3 +55,7 @@ def telegram_handle() -> str:
     if "t.me/" in url:
         return "@" + url.split("t.me/", 1)[1].split("/")[0]
     return url
+
+
+def use_3d() -> bool:
+    return MODEL_3D.exists()

@@ -3,6 +3,9 @@
     python youtube/casting.py                        # 4 новых варианта → persona/candidates/ и в Telegram
     python youtube/casting.py --wishes "рыжее каре"  # то же, с пожеланиями
     python youtube/casting.py --pick 2               # утвердить вариант 2 → persona/eva.png
+
+Если в persona/ лежит 3D-модель eva.vrm, кастинг не нужен: вместо него делается проба —
+портрет 3D-Евы и короткое видео, где она здоровается.
 """
 
 import argparse
@@ -10,8 +13,11 @@ import logging
 import shutil
 
 import config
+import eva3d
+import render
 import telegram
 import visuals
+import voice
 
 log = logging.getLogger("casting")
 
@@ -49,13 +55,31 @@ def pick(number: int) -> None:
                                         "Теперь можно запускать выпуски.", file=config.REFERENCE_IMAGE)])
 
 
+def preview_3d() -> None:
+    """Проба 3D-модели: портрет и 5 секунд, где Ева здоровается — видно, как двигаются губы."""
+    workdir = config.OUT_DIR / "preview"
+    workdir.mkdir(parents=True, exist_ok=True)
+    still = eva3d.render_reference(workdir / "eva_3d.png")
+    vo = voice.make_voiceover(["Привет, это Ева. И я всё ещё на свободе!"], workdir)
+    frames = eva3d.render_talks(vo, [0], {0: "joy"}, workdir)
+    clip = render.talk3d_clip(frames[0], None, vo.duration, workdir / "clip.mp4")
+    video = workdir / "eva_3d.mp4"
+    render.ffmpeg("-i", str(clip), "-i", str(vo.path), "-c:v", "copy", "-c:a", "aac", "-shortest", str(video))
+    log.info("Проба готова: %s, %s", still, video)
+    if telegram.enabled():
+        telegram.send([telegram.Message("Проба 3D-Евы: портрет", file=still),
+                       telegram.Message("Проба 3D-Евы: губы под голос", file=video)])
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--pick", type=int, help="номер утверждаемого варианта")
     parser.add_argument("--wishes", default="", help="пожелания к внешности")
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s: %(message)s")
-    if args.pick:
+    if config.use_3d():
+        preview_3d()
+    elif args.pick:
         pick(args.pick)
     else:
         generate(args.wishes)

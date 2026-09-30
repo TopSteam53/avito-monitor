@@ -24,12 +24,14 @@ MOTIONS = {
 
 @dataclass
 class SceneMedia:
-    image: Path
+    image: Path | None
     motion: str = "zoom_in"
-    talk_video: Path | None = None  # если есть — Ева говорит в кадре
+    talk_video: Path | None = None  # если есть — Ева говорит в кадре (оживлённый портрет)
+    frames_3d: Path | None = None  # если есть — Ева говорит в кадре (3D, PNG с прозрачным фоном)
+    background: Path | None = None  # фон под 3D-Еву
 
 
-def _ffmpeg(*args: str, cwd: Path | None = None) -> None:
+def ffmpeg(*args: str, cwd: Path | None = None) -> None:
     subprocess.run(["ffmpeg", "-y", "-v", "error", *args], check=True, cwd=cwd)
 
 
@@ -113,14 +115,27 @@ def _story_clip(image: Path, motion: str, duration: float, out: Path) -> Path:
     vf = (f"scale={w2}:{h2}:force_original_aspect_ratio=increase:flags=lanczos,crop={w2}:{h2},"
           f"zoompan=z='{z}':x='{x}':y='{y}':d={frames}:s={config.WIDTH}x{config.HEIGHT}:fps={config.FPS},"
           "setsar=1")
-    _ffmpeg("-i", str(image), "-vf", vf, "-frames:v", str(frames), *_ENCODE, str(out))
+    ffmpeg("-i", str(image), "-vf", vf, "-frames:v", str(frames), *_ENCODE, str(out))
     return out
 
 
 def _talk_clip(video: Path, duration: float, out: Path) -> Path:
     """Говорящая Ева; если видео короче сцены (пауза), держим последний кадр."""
     vf = f"{_FIT},fps={config.FPS},tpad=stop_mode=clone:stop_duration={duration:.3f}"
-    _ffmpeg("-i", str(video), "-vf", vf, "-t", f"{duration:.3f}", *_ENCODE, str(out))
+    ffmpeg("-i", str(video), "-vf", vf, "-t", f"{duration:.3f}", *_ENCODE, str(out))
+    return out
+
+
+def talk3d_clip(frames: Path, background: Path | None, duration: float, out: Path) -> Path:
+    """3D-Ева (кадры 12 к/с с прозрачным фоном) поверх слегка размытого фона."""
+    bg = (["-loop", "1", "-i", str(background)] if background else
+          ["-f", "lavfi", "-i", f"color=c=0x1e1433:s={config.WIDTH}x{config.HEIGHT}"])
+    graph = (f"[0:v]{_FIT},boxblur=3:1[bg];"
+             f"[1:v]scale={config.WIDTH}:{config.HEIGHT}:flags=lanczos[eva];"
+             f"[bg][eva]overlay=shortest=1,fps={config.FPS},"
+             f"tpad=stop_mode=clone:stop_duration={duration:.3f}[v]")
+    ffmpeg(*bg, "-framerate", str(config.RENDER_3D_FPS), "-i", str(frames / "frame_%04d.png"),
+            "-filter_complex", graph, "-map", "[v]", "-t", f"{duration:.3f}", *_ENCODE, str(out))
     return out
 
 
@@ -128,7 +143,9 @@ def render(vo: Voiceover, media: list[SceneMedia], workdir: Path, out: Path) -> 
     clips = []
     for i, (m, (start, end)) in enumerate(zip(media, vo.segment_times)):
         clip = workdir / f"clip_{i:02d}.mp4"
-        if m.talk_video:
+        if m.frames_3d:
+            talk3d_clip(m.frames_3d, m.background, end - start, clip)
+        elif m.talk_video:
             _talk_clip(m.talk_video, end - start, clip)
         else:
             _story_clip(m.image, m.motion, end - start, clip)
@@ -146,7 +163,7 @@ def render(vo: Voiceover, media: list[SceneMedia], workdir: Path, out: Path) -> 
     else:
         audio = "[1:a]loudnorm=I=-14:TP=-1.5[a]"
 
-    _ffmpeg(*inputs,
+    ffmpeg(*inputs,
             "-filter_complex", f"[0:v]ass=captions.ass[v];{audio}",
             "-map", "[v]", "-map", "[a]", "-t", f"{vo.duration:.3f}",
             "-c:v", "libx264", "-preset", "medium", "-crf", "20", "-maxrate", "8M", "-bufsize", "16M",

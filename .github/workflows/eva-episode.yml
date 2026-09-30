@@ -19,13 +19,13 @@ concurrency:
 jobs:
   episode:
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 150
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: "3.11"  # bpy (Blender) для 3D-Евы требует 3.11
           cache: pip
           cache-dependency-path: youtube/requirements.txt
 
@@ -36,6 +36,13 @@ jobs:
           sudo apt-get install -y -qq fonts-montserrat || echo "Montserrat недоступен, будет DejaVu"
 
       - run: pip install -r youtube/requirements.txt
+
+      - name: Install Blender (3D Eva)
+        if: hashFiles('youtube/persona/eva.vrm') != ''
+        run: |
+          sudo apt-get install -y -qq libegl1 libegl-mesa0 libgl1-mesa-dri libgl1 libxkbcommon0 \
+            libsm6 libxi6 libxxf86vm1 libxfixes3 libxrender1
+          pip install -r youtube/requirements-3d.txt
 
       - name: Make episode
         env:

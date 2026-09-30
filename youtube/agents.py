@@ -32,6 +32,7 @@ class Shot(BaseModel):
     with_eva: bool
     prompt: str
     motion: Motion
+    emotion: Literal["neutral", "joy", "fun", "sorrow", "surprised", "angry"]
 
 
 class Thumbnail(BaseModel):

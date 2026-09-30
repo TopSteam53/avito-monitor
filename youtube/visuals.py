@@ -11,10 +11,17 @@ import config
 
 log = logging.getLogger(__name__)
 
-EVA_PREFIX = ("The young woman from the reference image is Eva. Keep her face, hairstyle, hair colour, eyes "
+EVA_PREFIX = ("The character from the reference image is Eva. Keep her face, hairstyle, hair colour, eyes "
               "and outfit exactly as in the reference. ")
-STYLE = (" Cinematic photo, evening, soft neon purple and cyan accents, soft rim light, shallow depth of field, "
-         "no text, no logos, no watermark.")
+PHOTO_STYLE = (" Cinematic photo, evening, soft neon purple and cyan accents, soft rim light, shallow depth of "
+               "field, no text, no logos, no watermark.")
+ANIME_STYLE = (" Anime style matching the reference: VTuber look, clean cel shading, crisp line art, vibrant "
+               "colours, evening light with neon purple and cyan accents, no text, no logos, no watermark.")
+
+
+def style() -> str:
+    return ANIME_STYLE if config.use_3d() else PHOTO_STYLE
+
 
 _uploaded: dict[Path, str] = {}
 
@@ -58,7 +65,7 @@ def generate_images(prompt: str, out_stem: Path, *, with_eva: bool, aspect: str 
                     count: int = 1, reference: Path | None = None) -> list[Path]:
     """Генерирует картинки. С with_eva лицо берётся с эталона (эндпоинт /edit)."""
     args = {
-        "prompt": prompt + STYLE,
+        "prompt": prompt + style(),
         "aspect_ratio": aspect,
         "num_images": count,
         "resolution": config.IMAGE_RESOLUTION,

@@ -1,0 +1,2 @@
+# Blender как Python-модуль — нужен только для 3D-Евы (persona/eva.vrm). Требует Python 3.11.
+bpy==4.2.0

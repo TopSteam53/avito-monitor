@@ -13,6 +13,7 @@ from datetime import datetime, timezone
 
 import agents
 import config
+import eva3d
 import render
 import telegram
 import thumbnail
@@ -124,7 +125,8 @@ def main() -> None:
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s: %(message)s")
 
-    if not config.REFERENCE_IMAGE.exists():
+    three_d = config.use_3d()
+    if not three_d and not config.REFERENCE_IMAGE.exists():
         raise SystemExit("Нет лица Евы (persona/eva.png). Сначала запусти кастинг: python youtube/casting.py")
 
     history = load_history()
@@ -152,36 +154,64 @@ def main() -> None:
     shots = {s.scene: s for s in plan.shots}
     write_script(workdir / "script.md", brief, episode, plan)
 
-    # 5. Кадры: по картинке на сцену плюс превью, параллельно.
+    # 5. Кадры: по картинке на сцену плюс превью, параллельно. В 3D-режиме говорящие сцены рендерит Blender
+    #    (в это же время), а под них генерируется только фон.
+    talk = [i for i, s in enumerate(episode.scenes) if s.kind == "talk"]
+    if three_d:
+        log.info("Рендерю эталон 3D-Евы…")
+        reference = eva3d.render_reference(workdir / "eva_reference.png")
+    else:
+        reference = config.REFERENCE_IMAGE
+
     def scene_image(i: int):
         scene, shot = episode.scenes[i], shots.get(i)
         prompt = shot.prompt if shot else f"Eva in {plan.talk_setting}, looking into the camera"
         with_eva = scene.kind == "talk" or (shot.with_eva if shot else True)
-        return visuals.generate_images(prompt, workdir / f"scene_{i:02d}", with_eva=with_eva)[0]
+        out = workdir / f"scene_{i:02d}"
+        return visuals.generate_images(prompt, out, with_eva=with_eva, reference=reference)[0]
 
-    log.info("Генерирую %d кадров и превью…", len(episode.scenes))
-    with ThreadPoolExecutor(4) as pool:
+    to_draw = [i for i in range(len(episode.scenes)) if not (three_d and i in talk)]
+    log.info("Генерирую %d кадров и превью…", len(to_draw))
+    with ThreadPoolExecutor(5) as pool:
+        if three_d and talk:
+            log.info("Рендерю 3D-Еву: %d сцен…", len(talk))
+            emotions = {i: shots[i].emotion for i in talk if i in shots}
+            eva_job = pool.submit(eva3d.render_talks, vo, talk, emotions, workdir)
+            bg_job = pool.submit(visuals.generate_images, f"{plan.talk_setting}. Empty location, no people.",
+                                 workdir / "talk_bg", with_eva=False)
         thumb_job = pool.submit(visuals.generate_images, plan.thumbnail.prompt, workdir / "thumb",
-                                with_eva=True, aspect="16:9")
-        images = list(pool.map(scene_image, range(len(episode.scenes))))
+                                with_eva=True, aspect="16:9", reference=reference)
+        drawn = dict(zip(to_draw, pool.map(scene_image, to_draw)))
         thumb_image = thumb_job.result()[0]
+        if three_d and talk:
+            frames_3d, background = eva_job.result(), bg_job.result()[0]
     thumb = thumbnail.make_thumbnail(thumb_image, plan.thumbnail.text, plan.thumbnail.text_side,
                                      config.OUT_DIR / f"{name}.jpg")
+    media = [render.SceneMedia(drawn.get(i), shots[i].motion if i in shots else "zoom_in")
+             for i in range(len(episode.scenes))]
+    images_made = len(drawn) + 1
 
-    # 6. Ева говорит в камеру: оживляем сцены talk, пока не кончится лимит секунд.
-    media = [render.SceneMedia(img, shots[i].motion if i in shots else "zoom_in") for i, img in enumerate(images)]
-    budget, talk_jobs = config.LIPSYNC_MAX_SECONDS, []
-    for i, scene in enumerate(episode.scenes):
-        length = vo.segment_times[i][1] - vo.segment_times[i][0]
-        if scene.kind == "talk" and length <= budget:
-            talk_jobs.append(i)
-            budget -= length
-    talk_seconds = config.LIPSYNC_MAX_SECONDS - budget
-    log.info("Оживляю Еву: %d сцен, %.0f с…", len(talk_jobs), talk_seconds)
-    with ThreadPoolExecutor(3) as pool:
-        videos = pool.map(lambda i: visuals.lipsync(images[i], vo.parts[i], workdir / f"talk_{i:02d}.mp4"), talk_jobs)
-        for i, video in zip(talk_jobs, videos):
-            media[i].talk_video = video
+    # 6. Ева говорит в камеру.
+    talk_seconds = 0.0
+    if three_d:
+        for i in talk:
+            media[i].frames_3d, media[i].background = frames_3d[i], background
+        images_made += 1
+    else:
+        # Оживляем портреты сцен talk (платно), пока не кончится лимит секунд.
+        budget, talk_jobs = config.LIPSYNC_MAX_SECONDS, []
+        for i in talk:
+            length = vo.segment_times[i][1] - vo.segment_times[i][0]
+            if length <= budget:
+                talk_jobs.append(i)
+                budget -= length
+        talk_seconds = config.LIPSYNC_MAX_SECONDS - budget
+        log.info("Оживляю Еву: %d сцен, %.0f с…", len(talk_jobs), talk_seconds)
+        with ThreadPoolExecutor(3) as pool:
+            videos = pool.map(lambda i: visuals.lipsync(drawn[i], vo.parts[i], workdir / f"talk_{i:02d}.mp4"),
+                              talk_jobs)
+            for i, video in zip(talk_jobs, videos):
+                media[i].talk_video = video
 
     # 7. Монтаж.
     log.info("Монтирую…")
@@ -194,7 +224,7 @@ def main() -> None:
     description = build_description(meta, vo)
     tags = fit_tags(meta.tags)
     lipsync_price = LIPSYNC_PRICE.get(config.LIPSYNC_RESOLUTION, 0.08) if "fabric" in config.LIPSYNC_MODEL else 0.02
-    cost = agents.claude_cost() + (len(images) + 1) * IMAGE_PRICE + talk_seconds * lipsync_price
+    cost = agents.claude_cost() + images_made * IMAGE_PRICE + talk_seconds * lipsync_price
     post = {"title": title, "description": description, "tags": tags,
             "pinned_comment": clean(meta.pinned_comment), "telegram_post": meta.telegram_post,
             "duration": round(vo.duration), "cost_usd": round(cost, 2)}
