@@ -96,9 +96,9 @@ def setup_scene(arm, width: int, height: int):
     cam_data.lens = 50
     cam = bpy.data.objects.new("Camera", cam_data)
     scene.collection.objects.link(cam)
-    # Кадр по грудь: голова в верхней трети, над макушкой небольшой запас.
-    target = Vector((head.x, head.y, head.z - 0.05 * scale))
-    cam.location = Vector((head.x, head.y - 1.05 * scale, head.z + 0.02 * scale))
+    # Кадр по грудь: над макушкой запас под ник канала, снизу — грудь с надписью на худи.
+    target = Vector((head.x, head.y, head.z + 0.005 * scale))
+    cam.location = Vector((head.x, head.y - 1.05 * scale, head.z + 0.05 * scale))
     cam.rotation_euler = (target - cam.location).to_track_quat("-Z", "Y").to_euler()
     scene.camera = cam
 
